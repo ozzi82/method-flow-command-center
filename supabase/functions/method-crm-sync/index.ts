@@ -19,16 +19,20 @@ const supabase = createClient(
 
 const methodApiKey = Deno.env.get('METHOD_CRM_API_KEY');
 const methodCompanyDb = Deno.env.get('METHOD_CRM_COMPANY_DB');
-const methodBaseUrl = 'https://api.method.me/v1';
+// Correct Method CRM API base URL
+const methodBaseUrl = 'https://rest.method.me/api/v1';
 
 async function callMethodAPI(endpoint: string, method: string = 'GET', data?: any) {
-  const url = `${methodBaseUrl}/${methodCompanyDb}/${endpoint}`;
+  // Correct URL structure: no company DB in path for REST API
+  const url = `${methodBaseUrl}/${endpoint}`;
   
   const options: RequestInit = {
     method,
     headers: {
-      'Authorization': `Bearer ${methodApiKey}`,
+      // Correct Method CRM API Key authentication format
+      'Authorization': `APIKey ${methodApiKey}`,
       'Content-Type': 'application/json',
+      'Host': 'rest.method.me',
     },
   };
 
@@ -37,46 +41,67 @@ async function callMethodAPI(endpoint: string, method: string = 'GET', data?: an
   }
 
   console.log(`Method CRM API call: ${method} ${url}`);
+  console.log('Headers:', options.headers);
   
   const response = await fetch(url, options);
   
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`Method CRM API error: ${response.status} ${errorText}`);
-    throw new Error(`Method CRM API error: ${response.status} ${errorText}`);
+    console.error('Response body:', errorText);
+    throw new Error(`Method CRM API error: ${response.status} - ${errorText}`);
   }
 
-  return await response.json();
+  const result = await response.json();
+  console.log('Method CRM API response:', result);
+  return result;
 }
 
 async function syncContacts(userId: string) {
   console.log('Syncing contacts from Method CRM...');
   
   try {
-    // Fetch contacts from Method CRM
-    const methodContacts = await callMethodAPI('tables/Customer');
+    // Fetch contacts from Method CRM - correct table name is 'Customer'
+    const response = await callMethodAPI('tables/Customer');
     
-    // Process and store contacts in Supabase
+    // Method CRM returns data in a 'value' array
+    const methodContacts = response.value || response || [];
+    
+    if (!Array.isArray(methodContacts)) {
+      console.error('Unexpected response format from Method CRM:', response);
+      throw new Error('Invalid response format from Method CRM');
+    }
+
+    console.log(`Found ${methodContacts.length} contacts in Method CRM`);
+    
+    // Process and store contacts in Supabase with correct field mapping
     const contactsToInsert = methodContacts.map((contact: any) => ({
-      name: contact.Name || 'Unknown',
+      name: contact.Name || contact.FirstName || contact.LastName || 'Unknown',
       email: contact.Email || null,
       phone: contact.Phone || null,
-      company: contact.CompanyName || null,
-      method_crm_id: contact.RecordID,
+      company: contact.CompanyName || contact.Company || null,
+      method_crm_id: contact.RecordID || contact.Id,
       user_id: userId,
     }));
+
+    if (contactsToInsert.length === 0) {
+      return { success: true, count: 0, message: 'No contacts to sync' };
+    }
 
     // Insert/update contacts in Supabase
     const { data, error } = await supabase
       .from('contacts')
-      .upsert(contactsToInsert, { onConflict: 'method_crm_id,user_id' });
+      .upsert(contactsToInsert, { 
+        onConflict: 'method_crm_id,user_id',
+        ignoreDuplicates: false 
+      });
 
     if (error) {
       console.error('Error inserting contacts:', error);
       throw error;
     }
 
-    console.log(`Synced ${contactsToInsert.length} contacts`);
+    console.log(`Successfully synced ${contactsToInsert.length} contacts`);
     return { success: true, count: contactsToInsert.length };
     
   } catch (error) {
@@ -86,45 +111,58 @@ async function syncContacts(userId: string) {
 }
 
 async function createMethodActivity(taskData: any, userId: string) {
-  console.log('Creating activity in Method CRM...');
+  console.log('Creating activity in Method CRM for task:', taskData.id);
   
   try {
+    // Correct Method CRM Activity field mapping
     const activityData = {
       Subject: taskData.title,
       Description: taskData.description || '',
       ActivityType: 'Task',
       Status: taskData.status === 'done' ? 'Completed' : 'In Progress',
       Priority: taskData.priority === 'high' ? 'High' : taskData.priority === 'medium' ? 'Normal' : 'Low',
-      DueDate: taskData.dueDate || null,
+      DueDate: taskData.dueDate ? new Date(taskData.dueDate).toISOString() : null,
+      // Add any other required fields based on Method CRM schema
     };
 
+    console.log('Sending activity data to Method CRM:', activityData);
+    
     const methodResponse = await callMethodAPI('tables/Activity', 'POST', activityData);
     
-    // Update sync table
+    const recordId = methodResponse.RecordID || methodResponse.Id || methodResponse.id;
+    
+    if (!recordId) {
+      console.error('No record ID returned from Method CRM:', methodResponse);
+      throw new Error('Failed to get record ID from Method CRM response');
+    }
+    
+    // Update sync table with success
     await supabase.from('method_sync').insert({
       entity_type: 'task',
       entity_id: taskData.id,
-      method_crm_id: methodResponse.RecordID,
+      method_crm_id: recordId,
       sync_status: 'synced',
+      last_synced: new Date().toISOString(),
       user_id: userId,
     });
 
-    console.log('Activity created in Method CRM:', methodResponse.RecordID);
-    return { success: true, method_id: methodResponse.RecordID };
+    console.log('Activity created in Method CRM with ID:', recordId);
+    return { success: true, method_id: recordId };
     
   } catch (error) {
     console.error('Error creating Method activity:', error);
     
-    // Log sync error
+    // Log sync error with detailed information
     await supabase.from('method_sync').insert({
       entity_type: 'task',
       entity_id: taskData.id,
       sync_status: 'error',
-      error_message: error.message,
+      error_message: error.message || 'Unknown error occurred',
       user_id: userId,
     });
     
-    throw error;
+    // Don't throw the error, just return failure status
+    return { success: false, error: error.message };
   }
 }
 
@@ -134,11 +172,16 @@ serve(async (req) => {
   }
 
   try {
-    if (!methodApiKey || !methodCompanyDb) {
-      throw new Error('Method CRM credentials not configured');
+    // Check API key - company DB is not required for REST API
+    if (!methodApiKey) {
+      console.error('METHOD_CRM_API_KEY not configured');
+      throw new Error('Method CRM API key not configured');
     }
 
-    const { action, data, user_id }: MethodCRMRequest = await req.json();
+    const requestBody = await req.text();
+    console.log('Received request body:', requestBody);
+    
+    const { action, data, user_id }: MethodCRMRequest = JSON.parse(requestBody);
     
     if (!user_id) {
       throw new Error('User ID is required');
@@ -160,12 +203,20 @@ serve(async (req) => {
         
       case 'sync_tasks':
         // TODO: Implement task sync from Method CRM to Supabase
-        result = { success: true, message: 'Task sync not yet implemented' };
+        result = { success: true, message: 'Task sync from Method CRM not yet implemented' };
+        break;
+        
+      case 'create_contact':
+        if (!data) throw new Error('Contact data is required for creating contact');
+        // TODO: Implement contact creation in Method CRM
+        result = { success: true, message: 'Contact creation not yet implemented' };
         break;
         
       default:
         throw new Error(`Unknown action: ${action}`);
     }
+
+    console.log('Method CRM operation result:', result);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -173,8 +224,14 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in method-crm-sync function:', error);
+    console.error('Error stack:', error.stack);
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: error.message,
+        details: error.stack,
+        timestamp: new Date().toISOString()
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
