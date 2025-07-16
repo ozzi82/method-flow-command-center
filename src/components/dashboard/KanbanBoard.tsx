@@ -249,7 +249,6 @@ export const KanbanBoard = () => {
           onOpenChange={setIsEditTaskDialogOpen}
           task={editingTask}
           onUpdateTask={(updates) => handleUpdateTask(editingTask.id, updates)}
-          onDeleteTask={() => handleDeleteTask(editingTask.id)}
         />
       )}
 
