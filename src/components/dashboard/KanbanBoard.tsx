@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -9,180 +9,155 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { arrayMove, SortableContext } from '@dnd-kit/sortable';
-import { Task, TaskStatus, Column } from '@/types/task';
-import { Board } from '@/types/board';
+import { SortableContext, arrayMove } from '@dnd-kit/sortable';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
 import { KanbanColumn } from './KanbanColumn';
 import { TaskCard } from './TaskCard';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Settings, Trash2 } from 'lucide-react';
 import { CreateTaskDialog } from './CreateTaskDialog';
+import { EditTaskDialog } from './EditTaskDialog';
 import { BoardSelector } from './BoardSelector';
 import { CreateBoardDialog } from './CreateBoardDialog';
+import { Task, TaskStatus, Column } from '@/types/task';
+import { Board } from '@/types/board';
+import { useBoards } from '@/hooks/useBoards';
+import { useTasks } from '@/hooks/useTasks';
 
-const initialBoards: Board[] = [
-  { id: '1', name: 'Personal Tasks', description: 'My personal task board', color: 'blue', createdAt: new Date(), updatedAt: new Date() },
-  { id: '2', name: 'Work Projects', description: 'Work-related tasks and projects', color: 'green', createdAt: new Date(), updatedAt: new Date() },
-  { id: '3', name: 'Method CRM Setup', description: 'Tasks for CRM integration', color: 'purple', createdAt: new Date(), updatedAt: new Date() }
-];
-
-const initialTasks: Task[] = [
-  {
-    id: '1', title: 'Setup Method CRM Integration', description: 'Configure API endpoints and authentication for Method CRM',
-    status: 'todo', priority: 'high', dueDate: new Date('2024-12-30'), createdAt: new Date(), updatedAt: new Date(),
-    reminderSet: true, boardId: '3'
-  },
-  {
-    id: '2', title: 'Design Dashboard UI', description: 'Create wireframes and mockups for the main dashboard',
-    status: 'progress', priority: 'medium', createdAt: new Date(), updatedAt: new Date(), boardId: '1'
-  },
-  {
-    id: '3', title: 'Test Email Integration', description: 'Verify Outlook integration is working properly',
-    status: 'done', priority: 'low', createdAt: new Date(), updatedAt: new Date(), boardId: '2'
-  }
-];
-
-export function KanbanBoard() {
-  const [boards, setBoards] = useState<Board[]>(initialBoards);
-  const [currentBoardId, setCurrentBoardId] = useState<string>(initialBoards[0].id);
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+export const KanbanBoard = () => {
+  const { boards, createBoard, deleteBoard } = useBoards();
+  const [currentBoardId, setCurrentBoardId] = useState<string>('');
+  const { tasks, createTask, updateTask, deleteTask } = useTasks(currentBoardId);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showCreateBoardDialog, setShowCreateBoardDialog] = useState(false);
+  const [isCreateTaskDialogOpen, setIsCreateTaskDialogOpen] = useState(false);
+  const [isEditTaskDialogOpen, setIsEditTaskDialogOpen] = useState(false);
+  const [isCreateBoardDialogOpen, setIsCreateBoardDialogOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
-  const currentBoard = boards.find(b => b.id === currentBoardId);
-  const currentBoardTasks = tasks.filter(t => t.boardId === currentBoardId);
+  // Set current board to first board when boards load
+  useEffect(() => {
+    if (boards.length > 0 && !currentBoardId) {
+      setCurrentBoardId(boards[0].id);
+    }
+  }, [boards, currentBoardId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 3,
+        distance: 8,
       },
     })
   );
 
+  const currentBoard = boards.find(b => b.id === currentBoardId);
+  const filteredTasks = tasks;
+
   const columns: Column[] = [
-    { id: 'todo', title: 'To Do', tasks: currentBoardTasks.filter(task => task.status === 'todo') },
-    { id: 'progress', title: 'In Progress', tasks: currentBoardTasks.filter(task => task.status === 'progress') },
-    { id: 'done', title: 'Done', tasks: currentBoardTasks.filter(task => task.status === 'done') }
+    { id: 'todo', title: 'To Do', tasks: filteredTasks.filter(task => task.status === 'todo') },
+    { id: 'progress', title: 'In Progress', tasks: filteredTasks.filter(task => task.status === 'progress') },
+    { id: 'done', title: 'Done', tasks: filteredTasks.filter(task => task.status === 'done') }
   ];
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    const task = tasks.find(t => t.id === active.id);
+    const task = filteredTasks.find(t => t.id === active.id);
     setActiveTask(task || null);
   };
 
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
+    
     if (!over) return;
-
-    const activeTaskId = active.id as string;
-    const overTaskId = over.id as string;
-
-    const activeTask = tasks.find(t => t.id === activeTaskId);
-    const overTask = tasks.find(t => t.id === overTaskId);
-
+    
+    const activeTask = filteredTasks.find(t => t.id === active.id);
     if (!activeTask) return;
-
-    // Handle dropping on a column
-    if (['todo', 'progress', 'done'].includes(overTaskId)) {
-      const newStatus = overTaskId as TaskStatus;
+    
+    const overId = over.id as string;
+    
+    // Check if we're dropping over a column
+    if (['todo', 'progress', 'done'].includes(overId)) {
+      const newStatus = overId as TaskStatus;
       if (activeTask.status !== newStatus) {
-        setTasks(prev => prev.map(task =>
-          task.id === activeTaskId
-            ? { ...task, status: newStatus, updatedAt: new Date() }
-            : task
-        ));
+        updateTask(activeTask.id, { status: newStatus });
       }
-      return;
-    }
-
-    // Handle reordering within the same column or moving between columns
-    if (overTask && activeTask.status !== overTask.status) {
-      setTasks(prev => prev.map(task =>
-        task.id === activeTaskId
-          ? { ...task, status: overTask.status, updatedAt: new Date() }
-          : task
-      ));
     }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveTask(null);
-
+    
     if (!over) return;
-
-    const activeTaskId = active.id as string;
-    const overTaskId = over.id as string;
-
-    const activeTask = tasks.find(t => t.id === activeTaskId);
-    const overTask = tasks.find(t => t.id === overTaskId);
-
+    
+    const activeId = active.id as string;
+    const overId = over.id as string;
+    
+    // Find the active task
+    const activeTask = filteredTasks.find(t => t.id === activeId);
     if (!activeTask) return;
+    
+    // If dropping on a column, we've already handled it in dragOver
+    if (['todo', 'progress', 'done'].includes(overId)) {
+      return;
+    }
+    
+    // For now, just handle status changes. Task reordering can be added later if needed.
+  };
 
-    // If dropping on the same task, do nothing
-    if (activeTaskId === overTaskId) return;
+  const handleCreateTask = async (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
+    await createTask(taskData);
+    setIsCreateTaskDialogOpen(false);
+  };
 
-    // If we have both tasks, reorder them
-    if (overTask && activeTask.status === overTask.status) {
-      const sameStatusTasks = tasks.filter(t => t.status === activeTask.status);
-      const activeIndex = sameStatusTasks.findIndex(t => t.id === activeTaskId);
-      const overIndex = sameStatusTasks.findIndex(t => t.id === overTaskId);
+  const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
+    await updateTask(taskId, updates);
+    setIsEditTaskDialogOpen(false);
+    setEditingTask(null);
+  };
 
-      const reorderedTasks = arrayMove(sameStatusTasks, activeIndex, overIndex);
-      
-      setTasks(prev => [
-        ...prev.filter(t => t.status !== activeTask.status),
-        ...reorderedTasks
-      ]);
+  const handleDeleteTask = async (taskId: string) => {
+    await deleteTask(taskId);
+    setIsEditTaskDialogOpen(false);
+    setEditingTask(null);
+  };
+
+  const handleCreateBoard = async (name: string, description: string, color: string) => {
+    const newBoard = await createBoard(name, description, color);
+    if (newBoard) {
+      setCurrentBoardId(newBoard.id);
+    }
+    setIsCreateBoardDialogOpen(false);
+  };
+
+  const handleDeleteBoard = async (boardId: string) => {
+    await deleteBoard(boardId);
+    
+    // If we deleted the current board, switch to the first remaining board
+    if (boardId === currentBoardId) {
+      const remainingBoards = boards.filter(board => board.id !== boardId);
+      setCurrentBoardId(remainingBoards[0]?.id || '');
     }
   };
 
-  const handleCreateTask = (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newTask: Task = {
-      ...taskData,
-      id: Date.now().toString(),
-      boardId: currentBoardId,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    setTasks(prev => [...prev, newTask]);
-  };
-
-  const handleUpdateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks(prev => prev.map(task =>
-      task.id === taskId
-        ? { ...task, ...updates, updatedAt: new Date() }
-        : task
-    ));
-  };
-
-  const handleDeleteTask = (taskId: string) => {
-    setTasks(prev => prev.filter(task => task.id !== taskId));
-  };
-
-  const handleCreateBoard = (name: string, description: string, color: string) => {
-    const newBoard: Board = {
-      id: Date.now().toString(),
-      name, description, color,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    setBoards(prev => [...prev, newBoard]);
-    setCurrentBoardId(newBoard.id);
-  };
-
-  const handleDeleteBoard = (boardId: string) => {
-    if (boards.length <= 1) return; // Keep at least one board
-    setBoards(prev => prev.filter(b => b.id !== boardId));
-    setTasks(prev => prev.filter(t => t.boardId !== boardId));
-    if (currentBoardId === boardId) {
-      setCurrentBoardId(boards.find(b => b.id !== boardId)?.id || boards[0].id);
-    }
-  };
+  const taskIds = filteredTasks.map(task => task.id);
+  
+  // Show loading state if no boards exist yet
+  if (boards.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-semibold mb-4">No boards yet</h2>
+        <p className="text-muted-foreground mb-6">Create your first board to get started</p>
+        <Button onClick={() => setIsCreateBoardDialogOpen(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          Create Board
+        </Button>
+        <CreateBoardDialog
+          open={isCreateBoardDialogOpen}
+          onOpenChange={setIsCreateBoardDialogOpen}
+          onCreateBoard={handleCreateBoard}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -194,12 +169,12 @@ export function KanbanBoard() {
             onBoardChange={setCurrentBoardId}
             onDeleteBoard={handleDeleteBoard}
           />
-          <Button variant="outline" size="sm" onClick={() => setShowCreateBoardDialog(true)}>
+          <Button variant="outline" size="sm" onClick={() => setIsCreateBoardDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
             New Board
           </Button>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
+        <Button onClick={() => setIsCreateTaskDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Add Task
         </Button>
@@ -235,23 +210,27 @@ export function KanbanBoard() {
         onDragEnd={handleDragEnd}
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {columns.map((column) => (
-            <SortableContext key={column.id} items={column.tasks.map(t => t.id)}>
+          <SortableContext items={taskIds}>
+            {columns.map((column) => (
               <KanbanColumn
+                key={column.id}
                 column={column}
-                onUpdateTask={handleUpdateTask}
-                onDeleteTask={handleDeleteTask}
+                onUpdateTask={(taskId, updates) => { handleUpdateTask(taskId, updates); }}
+                onDeleteTask={(taskId) => {
+                  setEditingTask(filteredTasks.find(t => t.id === taskId) || null);
+                  setIsEditTaskDialogOpen(true);
+                }}
               />
-            </SortableContext>
-          ))}
+            ))}
+          </SortableContext>
         </div>
 
         <DragOverlay>
           {activeTask && (
             <TaskCard
               task={activeTask}
-              onUpdate={handleUpdateTask}
-              onDelete={handleDeleteTask}
+              onUpdate={(taskId, updates) => { handleUpdateTask(taskId, updates); }}
+              onDelete={(taskId) => { handleDeleteTask(taskId); }}
               isDragging
             />
           )}
@@ -259,16 +238,26 @@ export function KanbanBoard() {
       </DndContext>
 
       <CreateTaskDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
+        open={isCreateTaskDialogOpen}
+        onOpenChange={setIsCreateTaskDialogOpen}
         onCreateTask={handleCreateTask}
       />
 
+      {editingTask && (
+        <EditTaskDialog
+          open={isEditTaskDialogOpen}
+          onOpenChange={setIsEditTaskDialogOpen}
+          task={editingTask}
+          onUpdateTask={(updates) => handleUpdateTask(editingTask.id, updates)}
+          onDeleteTask={() => handleDeleteTask(editingTask.id)}
+        />
+      )}
+
       <CreateBoardDialog
-        open={showCreateBoardDialog}
-        onOpenChange={setShowCreateBoardDialog}
+        open={isCreateBoardDialogOpen}
+        onOpenChange={setIsCreateBoardDialogOpen}
         onCreateBoard={handleCreateBoard}
       />
     </div>
   );
-}
+};
