@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Task, TaskStatus } from '@/types/task';
 import { useAuth } from './useAuth';
+import { useMethodCRM } from './useMethodCRM';
 import { toast } from './use-toast';
 
 export const useTasks = (boardId?: string) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const { createTaskInMethodCRM } = useMethodCRM();
 
   const fetchTasks = async () => {
     if (!user || !boardId) {
@@ -85,6 +87,9 @@ export const useTasks = (boardId?: string) => {
         title: "Success",
         description: "Task created successfully"
       });
+      
+      // Sync to Method CRM in background
+      createTaskInMethodCRM(formattedTask);
       
       return formattedTask;
     } catch (error) {

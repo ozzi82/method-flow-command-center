@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { KanbanBoard } from './KanbanBoard';
 import { DashboardOverview } from './DashboardOverview';
-import { LayoutDashboard, CheckSquare, Users, FileText, Mail, DollarSign, Bell } from 'lucide-react';
+import { MethodCRMSync } from './MethodCRMSync';
+import { LayoutDashboard, CheckSquare, Users, FileText, Mail, DollarSign, Bell, RefreshCw } from 'lucide-react';
 
 interface DashboardLayoutProps {
   children?: React.ReactNode;
@@ -44,7 +45,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="p-6">
         {children || (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid grid-cols-6 w-fit bg-muted">
+            <TabsList className="grid grid-cols-7 w-fit bg-muted">
               <TabsTrigger value="overview" className="flex items-center gap-2">
                 <LayoutDashboard className="h-4 w-4" />
                 Overview
@@ -56,6 +57,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <TabsTrigger value="contacts" className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
                 Contacts
+              </TabsTrigger>
+              <TabsTrigger value="method-sync" className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Method CRM
               </TabsTrigger>
               <TabsTrigger value="estimates" className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
@@ -83,6 +88,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 </div>
               </div>
               <KanbanBoard />
+            </TabsContent>
+
+            <TabsContent value="method-sync" className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold">Method CRM Integration</h2>
+                  <p className="text-muted-foreground">Sync your data with Method CRM</p>
+                </div>
+              </div>
+              <MethodCRMSync />
             </TabsContent>
 
             <TabsContent value="contacts">
