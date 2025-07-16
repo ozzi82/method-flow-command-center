@@ -160,6 +160,10 @@ export function KanbanBoard() {
     ));
   };
 
+  const handleDeleteTask = (taskId: string) => {
+    setTasks(prev => prev.filter(task => task.id !== taskId));
+  };
+
   const handleCreateBoard = (name: string, description: string, color: string) => {
     const newBoard: Board = {
       id: Date.now().toString(),
@@ -253,6 +257,12 @@ export function KanbanBoard() {
           )}
         </DragOverlay>
       </DndContext>
+
+      <CreateTaskDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        onCreateTask={handleCreateTask}
+      />
 
       <CreateBoardDialog
         open={showCreateBoardDialog}

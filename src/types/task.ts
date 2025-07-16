@@ -10,6 +10,7 @@ export interface Task {
   createdAt: Date;
   updatedAt: Date;
   reminderSet?: boolean;
+  boardId?: string;
 }
 
 export interface Column {
