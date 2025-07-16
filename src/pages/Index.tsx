@@ -41,15 +41,17 @@ const Index = () => {
   }
 
   return (
-    <DashboardLayout>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Welcome back!</h1>
-        <Button variant="outline" onClick={signOut}>
-          Sign Out
-        </Button>
-      </div>
-      <KanbanBoard />
-    </DashboardLayout>
+    <div className="min-h-screen bg-background">
+      <header className="border-b bg-card shadow-card">
+        <div className="flex h-16 items-center justify-between px-6">
+          <h1 className="text-2xl font-bold">Method CRM Dashboard</h1>
+          <Button variant="outline" onClick={signOut}>
+            Sign Out
+          </Button>
+        </div>
+      </header>
+      <DashboardLayout />
+    </div>
   );
 };
 
